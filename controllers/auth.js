@@ -2,6 +2,11 @@ const User = require("../models/user");
 const { validationResult } = require("express-validator");
 var jwt = require("jsonwebtoken");
 var expressJwt = require("express-jwt");
+var { OAuth2Client } = require("google-auth-library");
+
+const client = new OAuth2Client(
+  "1072416019688-7pc4f0ml5lbq04dn8stagrv9tbto92en.apps.googleusercontent.com"
+);
 
 exports.signup = (req, res) => {
   const errors = validationResult(req);
@@ -58,6 +63,47 @@ exports.signin = (req, res) => {
     const { _id, name, email, role } = user;
     res.json({ token, user: { _id, name, email, role } });
   });
+};
+
+exports.loginWithGoogle = async (req, res) => {
+  const { tokenId } = req.body;
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(422).json({
+      error: errors.array()[0].msg,
+    });
+  }
+
+  const result = await client.verifyIdToken({ idToken: tokenId });
+  const loginEmail = result.payload.email;
+
+  const user = await User.findOne({ email: loginEmail });
+  if (user === null) {
+    const newUser = {
+      name: result.payload.name,
+      email: result.payload.email,
+      password: result.payload.sub,
+    };
+    const user = new User(newUser);
+    const savedUser = await user.save(user);
+    //create token
+    const token = jwt.sign({ _id: savedUser._id }, process.env.SECRET);
+
+    //put token in cookie
+    res.cookie("token", token, { expire: new Date() + 9999 });
+
+    const { _id, name, email, role } = savedUser;
+    res.json({ token, user: { _id, name, email, role } });
+  } else {
+    //create token
+    const token = jwt.sign({ _id: user._id }, process.env.SECRET);
+
+    //put token in cookie
+    res.cookie("token", token, { expire: new Date() + 9999 });
+
+    const { _id, name, email, role } = user;
+    res.json({ token, user: { _id, name, email, role } });
+  }
 };
 
 exports.signout = (req, res) => {
